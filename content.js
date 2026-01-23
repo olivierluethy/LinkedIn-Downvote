@@ -164,65 +164,98 @@ async function processPosts() {
   isProcessing = true;
 
   try {
-    // More flexible bar detection
-    const bars = document.querySelectorAll(
-      ".feed-shared-social-action-bar, [role='toolbar']"
-    );
+    const COMMENT_SELECTOR = "button[data-view-name='feed-comment-button']";
+    const SHARE_SELECTOR   = "button[data-view-name='feed-share-button']";
+    const SEND_SELECTOR    = "button[data-view-name='feed-send-as-message-button']";
 
-    const clientId = await getClientId();
-    const votedPosts = await getVotedPosts();
+    const commentButtons = document.querySelectorAll(COMMENT_SELECTOR);
 
-    for (const bar of bars) {
-      // Ensure this toolbar belongs to a feed post
-      if (!bar.querySelector("button")) continue;
+    const clientId    = await getClientId();
+    const votedPosts  = await getVotedPosts();
 
-      const post = bar.closest(
-        "div.feed-shared-update-v2, article, .occludable-update"
-      );
-      if (!post || processedPosts.has(post)) continue;
-      processedPosts.add(post);
+    for (const commentBtn of commentButtons) {
+      const bar = commentBtn.parentElement;
+      if (!bar) continue;
 
-      const postId = extractPostId(post);
+      if (processedPosts.has(bar) || bar.hasAttribute("data-linkdown-processed")) {
+        continue;
+      }
 
-      // =====================
-      // DOWNVOTE BUTTON
-      // =====================
+      const shareBtn = bar.querySelector(SHARE_SELECTOR);
+      const sendBtn  = bar.querySelector(SEND_SELECTOR);
+      if (!shareBtn || !sendBtn) continue;
+
+      processedPosts.add(bar);
+      bar.setAttribute("data-linkdown-processed", "true");
+
+      // ────────────────────────────────────────────────
+      // Try to find post ID without relying on old .feed-shared-update-v2 wrapper
+      // Most reliable nowadays: look for data-urn or data-id on bar or nearest ancestors
+      // ────────────────────────────────────────────────
+      let postElementForId = bar;
+      let postId = null;
+
+      // Option 1: data-urn on the bar itself or very close parent
+      while (postElementForId && postElementForId !== document.body) {
+        if (postElementForId.hasAttribute("data-urn") || postElementForId.hasAttribute("data-id")) {
+          postId = postElementForId.getAttribute("data-urn") || postElementForId.getAttribute("data-id");
+          break;
+        }
+        postElementForId = postElementForId.parentElement;
+      }
+
+      // Fallback: if your extractPostId can work from bar
+      if (!postId && typeof extractPostId === "function") {
+        postId = extractPostId(bar);   // ← change your function to accept bar instead of post if needed
+      }
+
+      if (!postId) {
+        console.warn("[LinkDown] Could not extract postId for this bar", bar);
+        continue;
+      }
+
+      // ────────────────────────────────────────────────
+      // DOWNVOTE BUTTON (insert into bar – same as before)
+      // ────────────────────────────────────────────────
       if (!bar.querySelector("[data-linkdown]")) {
         const span = document.createElement("span");
-        span.className =
-          "reactions-react-button feed-shared-social-action-bar__action-button";
+        span.className = "reactions-react-button feed-shared-social-action-bar__action-button";
 
         const btn = document.createElement("button");
         btn.dataset.linkdown = "true";
-        btn.className =
-          "artdeco-button artdeco-button--muted artdeco-button--tertiary";
+        btn.className = "artdeco-button artdeco-button--muted artdeco-button--tertiary";
         btn.textContent = "👎 Downvote";
         btn.title = "Downvote";
 
+        Object.assign(btn.style, {
+          marginLeft: "12px",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          padding: "4px 10px",
+          borderRadius: "12px",
+          backgroundColor: "rgba(0, 0, 0, 0.05)",
+          border: "none",
+          cursor: "pointer",
+          transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+          outline: "none"
+        })
+
         span.appendChild(btn);
 
-        // 🔑 Premium-safe anchor:
-        // Insert next to the Like / React button
         const likeButton = bar.querySelector("button[aria-label*='Like'], button[aria-label*='React']");
 
-        // 🧪 Detect Premium / experimental UI variants
-        if (likeButton && !likeButton.offsetParent) {
-          console.warn(
-            "[LinkDown] Like button hidden or detached — different LinkedIn UI variant",
-            { bar, postId }
-          );
-        }
-        
-        const anchor =
-          likeButton?.closest("span, div");
+        let inserted = false;
 
-        if (anchor?.parentElement) {
-          anchor.parentElement.insertBefore(
-            span,
-            anchor.nextSibling
-          );
-        } else {
-          // Fallback — append without breaking layout
+        if (likeButton) {
+          const anchor = likeButton.closest("span, div, li");
+          if (anchor?.parentElement) {
+            anchor.parentElement.insertBefore(span, anchor.nextSibling);
+            inserted = true;
+          }
+        }
+
+        if (!inserted) {
           bar.appendChild(span);
         }
 
@@ -246,55 +279,55 @@ async function processPosts() {
               await setPostVoted(postId, isDownvoted);
               applyDownvoteStyle(btn, isDownvoted);
 
-              const counter =
-                post.querySelector(".linkdown-metrics-count");
-              updateDislikeCount(post, postId, counter);
+              // We'll handle metrics below using bar instead of post
             }
           );
         });
       }
 
-      // =====================
-      // METRICS (UNCHANGED)
-      // =====================
-      let counter =
-        post.querySelector(".linkdown-metrics-count");
+      // ────────────────────────────────────────────────
+      // METRICS – try to find reactions area from bar (upward search)
+      // ────────────────────────────────────────────────
+      let counter = bar.querySelector(".linkdown-metrics-count");
 
       if (!counter) {
-        const reactions =
-          post.querySelector(".social-details-social-counts");
-        const targetLi =
-          reactions?.querySelector("li[class^='social-details']");
+        // Go up to find the reactions/social counts block
+        let reactionsContainer = bar;
+        while (reactionsContainer && reactionsContainer !== document.body) {
+          reactionsContainer = reactionsContainer.parentElement;
+          const reactions = reactionsContainer?.querySelector(".social-details-social-counts");
+          if (reactions) {
+            const targetLi = reactions.querySelector("li[class^='social-details']");
+            if (targetLi) {
+              const metricBtn = document.createElement("button");
+              metricBtn.type = "button";
+              metricBtn.className =
+                "t-black--light display-flex align-items-center " +
+                "social-details-social-counts__count-value " +
+                "text-body-small hoverable-link-text linkdown-downvote-metrics";
+              metricBtn.style.marginLeft = "10px";
+              metricBtn.style.cursor = "unset";
+              metricBtn.style.display = "flex";
+              metricBtn.style.alignItems = "center";
+              metricBtn.style.gap = "4px";
 
-        if (targetLi) {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className =
-            "t-black--light display-flex align-items-center " +
-            "social-details-social-counts__count-value " +
-            "text-body-small hoverable-link-text linkdown-downvote-metrics";
-          btn.style.marginLeft = "10px";
-          btn.style.cursor = "unset";
-          btn.style.display = "flex";
-          btn.style.alignItems = "center";
-          btn.style.gap = "4px";
+              const img = document.createElement("img");
+              img.src = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><text y='14' font-size='14'>👎</text></svg>";
+              img.alt = "downvote";
 
-          const img = document.createElement("img");
-          img.src =
-            "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><text y='14' font-size='14'>👎</text></svg>";
-          img.alt = "downvote";
+              counter = document.createElement("span");
+              counter.className = "social-details-social-counts__reactions-count linkdown-metrics-count";
+              counter.style.fontWeight = "bold";
+              counter.textContent = "0";
 
-          counter = document.createElement("span");
-          counter.className =
-            "social-details-social-counts__reactions-count linkdown-metrics-count";
-          counter.style.fontWeight = "bold";
-          counter.textContent = "0";
+              metricBtn.appendChild(img);
+              metricBtn.appendChild(counter);
+              targetLi.appendChild(metricBtn);
 
-          btn.appendChild(img);
-          btn.appendChild(counter);
-          targetLi.appendChild(btn);
-
-          updateDislikeCount(post, postId, counter);
+              updateDislikeCount(null, postId, counter);  // pass null instead of post if function allows
+              break;
+            }
+          }
         }
       }
     }
