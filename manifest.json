@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LinkedIn Downvote Button – Dislike Posts & Cringe Content",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Add 👎 Downvote / Dislike Button to LinkedIn feed. Downvote cringe posts, AI spam, humblebrags & fake motivation content!",
   "permissions": ["storage"],
 

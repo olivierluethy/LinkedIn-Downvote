@@ -160,147 +160,70 @@ function updateDislikeCount(post, postId, counter) {
 // MAIN PROCESSOR
 // =========================
 async function processPosts() {
-  if (isProcessing) return;
-  isProcessing = true;
+  const COMMENT_SELECTOR = "button[data-view-name='feed-comment-button']";
+  const SHARE_SELECTOR   = "button[data-view-name='feed-share-button']";
+  const SEND_SELECTOR    = "button[data-view-name='feed-send-as-message-button']";
 
-  try {
-    // More flexible bar detection
-    const bars = document.querySelectorAll(
-      ".feed-shared-social-action-bar, [role='toolbar']"
-    );
+  const POST_MARKER_ATTR = "data-custom-post-processed";
 
-    const clientId = await getClientId();
-    const votedPosts = await getVotedPosts();
+  function createCustomButton() {
+    const btn = document.createElement("button");
+    btn.innerText = "Custom";
+    btn.style.marginLeft = "8px";
+    btn.style.padding = "4px 10px";
+    btn.style.borderRadius = "16px";
+    btn.style.border = "1px solid #0a66c2";
+    btn.style.background = "#ffffff";
+    btn.style.color = "#0a66c2";
+    btn.style.cursor = "pointer";
+    btn.style.fontSize = "12px";
 
-    for (const bar of bars) {
-      // Ensure this toolbar belongs to a feed post
-      if (!bar.querySelector("button")) continue;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      alert("Custom Button clicked");
+    });
 
-      const post = bar.closest(
-        "div.feed-shared-update-v2, article, .occludable-update"
-      );
-      if (!post || processedPosts.has(post)) continue;
-      processedPosts.add(post);
-
-      const postId = extractPostId(post);
-
-      // =====================
-      // DOWNVOTE BUTTON
-      // =====================
-      if (!bar.querySelector("[data-linkdown]")) {
-        const span = document.createElement("span");
-        span.className =
-          "reactions-react-button feed-shared-social-action-bar__action-button";
-
-        const btn = document.createElement("button");
-        btn.dataset.linkdown = "true";
-        btn.className =
-          "artdeco-button artdeco-button--muted artdeco-button--tertiary";
-        btn.textContent = "👎 Downvote";
-        btn.title = "Downvote";
-
-        span.appendChild(btn);
-
-        // 🔑 Premium-safe anchor:
-        // Insert next to the Like / React button
-        const likeButton = bar.querySelector("button[aria-label*='Like'], button[aria-label*='React']");
-
-        // 🧪 Detect Premium / experimental UI variants
-        if (likeButton && !likeButton.offsetParent) {
-          console.warn(
-            "[LinkDown] Like button hidden or detached — different LinkedIn UI variant",
-            { bar, postId }
-          );
-        }
-        
-        const anchor =
-          likeButton?.closest("span, div");
-
-        if (anchor?.parentElement) {
-          anchor.parentElement.insertBefore(
-            span,
-            anchor.nextSibling
-          );
-        } else {
-          // Fallback — append without breaking layout
-          bar.appendChild(span);
-        }
-
-        let isDownvoted = votedPosts.includes(postId);
-        applyDownvoteStyle(btn, isDownvoted);
-
-        btn.addEventListener("click", () => {
-          btn.disabled = true;
-
-          chrome.runtime.sendMessage(
-            {
-              action: isDownvoted ? "undislike" : "dislike",
-              post_id: postId,
-              client_id: clientId
-            },
-            async (response) => {
-              btn.disabled = false;
-              if (!response?.success) return;
-
-              isDownvoted = !isDownvoted;
-              await setPostVoted(postId, isDownvoted);
-              applyDownvoteStyle(btn, isDownvoted);
-
-              const counter =
-                post.querySelector(".linkdown-metrics-count");
-              updateDislikeCount(post, postId, counter);
-            }
-          );
-        });
-      }
-
-      // =====================
-      // METRICS (UNCHANGED)
-      // =====================
-      let counter =
-        post.querySelector(".linkdown-metrics-count");
-
-      if (!counter) {
-        const reactions =
-          post.querySelector(".social-details-social-counts");
-        const targetLi =
-          reactions?.querySelector("li[class^='social-details']");
-
-        if (targetLi) {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className =
-            "t-black--light display-flex align-items-center " +
-            "social-details-social-counts__count-value " +
-            "text-body-small hoverable-link-text linkdown-downvote-metrics";
-          btn.style.marginLeft = "10px";
-          btn.style.cursor = "unset";
-          btn.style.display = "flex";
-          btn.style.alignItems = "center";
-          btn.style.gap = "4px";
-
-          const img = document.createElement("img");
-          img.src =
-            "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><text y='14' font-size='14'>👎</text></svg>";
-          img.alt = "downvote";
-
-          counter = document.createElement("span");
-          counter.className =
-            "social-details-social-counts__reactions-count linkdown-metrics-count";
-          counter.style.fontWeight = "bold";
-          counter.textContent = "0";
-
-          btn.appendChild(img);
-          btn.appendChild(counter);
-          targetLi.appendChild(btn);
-
-          updateDislikeCount(post, postId, counter);
-        }
-      }
-    }
-  } finally {
-    isProcessing = false;
+    return btn;
   }
+
+  function processFeed() {
+    const commentButtons = document.querySelectorAll(COMMENT_SELECTOR);
+
+    commentButtons.forEach(commentBtn => {
+      // Button-Container (meist die Action-Leiste des Posts)
+      const buttonContainer = commentBtn.parentElement;
+      if (!buttonContainer) return;
+
+      // Bereits verarbeitet?
+      if (buttonContainer.hasAttribute(POST_MARKER_ATTR)) return;
+
+      const shareBtn = buttonContainer.querySelector(SHARE_SELECTOR);
+      const sendBtn  = buttonContainer.querySelector(SEND_SELECTOR);
+
+      // Nur wenn alle drei Buttons vorhanden sind → gültiger Post
+      if (!shareBtn || !sendBtn) return;
+
+      // Markieren, damit wir ihn nicht doppelt verarbeiten
+      buttonContainer.setAttribute(POST_MARKER_ATTR, "true");
+
+      // Custom Button einfügen
+      const customButton = createCustomButton();
+      buttonContainer.appendChild(customButton);
+    });
+  }
+
+  // Initialer Lauf
+  processFeed();
+
+  // Beobachter für dynamisches Nachladen
+  const observer = new MutationObserver(() => {
+    processFeed();
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
 }
 
 // =========================
