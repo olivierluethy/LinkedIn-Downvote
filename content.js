@@ -1,10 +1,10 @@
 (function () {
   // --- KONFIGURATION ---
-  const COMMENT_SELECTOR = "button[data-view-name='feed-comment-button']";
-  const SHARE_SELECTOR   = "button[data-view-name='feed-share-button']";
-  const SEND_SELECTOR    = "button[data-view-name='feed-send-as-message-button']";
+  const COMMENT_SELECTOR = "button[data-view-name='feed-comment-button'], button.comment-button";
+  const SHARE_SELECTOR   = "button[data-view-name='feed-share-button'], button.social-reshare-button";
+  const SEND_SELECTOR    = "button[data-view-name='feed-send-as-message-button'], button.send-privately-button";
   const TEXT_BOX_SELECTOR = 'span[data-testid="expandable-text-box"]';
-  
+
   const POST_MARKER_ATTR = "data-custom-post-processed";
   const SMOOTHING = 10;
   const ACTIVE_COLOR = "#df3333"; // Rot für aktiven Dislike
@@ -53,21 +53,35 @@
     });
   }
 
+  function findPostTextFromContainer(container) {
+    let current = container;
+    let levels = 0;
+    while (current && levels < 12) {
+      const textEl = current.querySelector(TEXT_BOX_SELECTOR);
+      if (textEl && textEl.textContent.trim()) {
+        return textEl.textContent.trim();
+      }
+      current = current.parentElement;
+      levels++;
+    }
+    return "";
+  }
+
   // --- UI & AKTIONEN ---
   async function toggleDislike(btn, postHash, currentIsActive) {
     const clientId = await getClientId();
     const action = currentIsActive ? "undislike" : "dislike";
     const counterSpan = btn.querySelector(".dislike-count");
-    
+
     chrome.runtime.sendMessage({ action, post_id: postHash, client_id: clientId }, (response) => {
       if (response && response.success !== false) {
         // UI sofort anpassen
         const newActive = !currentIsActive;
         btn.style.color = newActive ? ACTIVE_COLOR : "#0a66c2";
         btn.style.borderColor = newActive ? ACTIVE_COLOR : "#0a66c2";
-        btn.dataset.active = newActive;
-        
-        // Wert inkrementieren/dekrementieren (lokale Vorschau vor neuem Fetch)
+        btn.dataset.active = newActive ? "true" : "false";
+
+        // Wert inkrementieren/dekrementieren (lokale Vorschau)
         let currentVal = parseInt(counterSpan.textContent) || 0;
         counterSpan.textContent = newActive ? currentVal + 1 : Math.max(0, currentVal - 1);
       }
@@ -105,7 +119,9 @@
       const spans = el.querySelectorAll("span");
       for (const span of spans) {
         const text = span.textContent.trim();
-        if (text && span.offsetParent !== null && NUMBER_REGEX.test(text)) return parseReactionCount(text);
+        if (text && span.offsetParent !== null && NUMBER_REGEX.test(text)) {
+          return parseReactionCount(text);
+        }
       }
       el = el.parentElement;
       levels++;
@@ -114,26 +130,32 @@
   }
 
   function processFeed() {
-    const textElements = document.querySelectorAll(TEXT_BOX_SELECTOR);
-    const contents = Array.from(textElements).map(el => el.textContent.trim());
     const commentButtons = document.querySelectorAll(COMMENT_SELECTOR);
 
-    commentButtons.forEach((commentBtn, index) => {
-      const buttonContainer = commentBtn.parentElement;
+    commentButtons.forEach((commentBtn) => {
+      const buttonContainer = commentBtn.closest('.feed-shared-social-action-bar') || commentBtn.parentElement;
       if (!buttonContainer || buttonContainer.hasAttribute(POST_MARKER_ATTR)) return;
 
       const shareBtn = buttonContainer.querySelector(SHARE_SELECTOR);
       const sendBtn  = buttonContainer.querySelector(SEND_SELECTOR);
 
-      if (shareBtn && sendBtn) {
-        buttonContainer.setAttribute(POST_MARKER_ATTR, "true");
+      // Require at least comment + one of share/repost or send to consider it valid
+      if (!shareBtn && !sendBtn) return;
 
-        const fullText = contents[index] || "";
-        const postHash = fullText ? generateHash(fullText) : null;
-        if (!postHash) return;
+      buttonContainer.setAttribute(POST_MARKER_ATTR, "true");
 
-        const totalReactions = findReactionCount(buttonContainer);
-        const dislikeBtn = createDislikeButton(postHash, totalReactions);
+      const fullText = findPostTextFromContainer(buttonContainer);
+      const postHash = fullText ? generateHash(fullText) : null;
+      if (!postHash) return;
+
+      const totalReactions = findReactionCount(buttonContainer);
+      const dislikeBtn = createDislikeButton(postHash, totalReactions);
+
+      // Append after the last relevant button (better visual placement)
+      const appendTarget = sendBtn?.parentElement || shareBtn?.parentElement || commentBtn.parentElement;
+      if (appendTarget && appendTarget.nextSibling) {
+        appendTarget.parentNode.insertBefore(dislikeBtn, appendTarget.nextSibling);
+      } else {
         buttonContainer.appendChild(dislikeBtn);
       }
     });
@@ -141,5 +163,13 @@
 
   // Start
   processFeed();
-  new MutationObserver(processFeed).observe(document.body, { childList: true, subtree: true });
+
+  // More efficient observer – only react when nodes are added
+  const observer = new MutationObserver((mutations) => {
+    if (mutations.some(m => m.addedNodes.length > 0)) {
+      processFeed();
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
 })();
