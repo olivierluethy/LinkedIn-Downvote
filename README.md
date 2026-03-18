@@ -1,11 +1,13 @@
 # 👎 LinkedIn Downvote
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![GitHub issues](https://img.shields.io/github/issues/yourusername/linkedin-downvote.svg)](https://github.com/yourusername/linkedin-downvote/issues)
-[![GitHub stars](https://img.shields.io/github/stars/yourusername/linkedin-downvote.svg)](https://github.com/yourusername/linkedin-downvote/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/yourusername/linkedin-downvote.svg)](https://github.com/yourusername/linkedin-downvote/network)
-[![Contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](#-contributing)
-[![Built with ❤️](https://img.shields.io/badge/built%20with-%E2%9D%A4-red)](#)
+[![GitHub stars](https://img.shields.io/github/stars/BaskLash/linkedin-downvote.svg)](https://github.com/BaskLash/linkedin-downvote/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/BaskLash/linkedin-downvote.svg)](https://github.com/BaskLash/linkedin-downvote/issues)
+![Last Commit](https://img.shields.io/github/last-commit/BaskLash/linkedin-downvote)
+
+![Chrome Web Store](https://img.shields.io/badge/Chrome%20Web%20Store-Available-blue?logo=googlechrome)
+![Manifest V3](https://img.shields.io/badge/Manifest-V3-important)
+![Privacy](https://img.shields.io/badge/privacy-no%20tracking-success)
 
 ---
 
